@@ -1,16 +1,30 @@
 <UserControl xmlns="https://github.com/avaloniaui"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             xmlns:vm="clr-namespace:MrGraph.ViewModels"
-             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
-             x:Class="MrGraph.Views.MainView"
-             x:DataType="vm:MainViewModel">
-  <Design.DataContext>
-    <!-- This only sets the DataContext for the previewer in an IDE,
-         to set the actual DataContext for runtime, set the DataContext property in code (look at App.axaml.cs) -->
-    <vm:MainViewModel />
-  </Design.DataContext>
+			 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+			 xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+			 xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+			 xmlns:vm="clr-namespace:MrGraph.ViewModels"
+			 xmlns:controls="clr-namespace:MrGraph.Controls"
+			 mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+			 x:Class="MrGraph.Views.MainView"
+			 x:DataType="vm:MainViewModel">
 
-  <TextBlock Text="{Binding Greeting}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+	<Design.DataContext>
+		<!-- This only sets the DataContext for the previewer in an IDE,
+		to set the actual DataContext for runtime, set the DataContext property in code (look at App.axaml.cs) -->
+		<vm:MainViewModel />
+	</Design.DataContext>
+
+	<Grid RowDefinitions="Auto,*,*">
+
+		<StackPanel Orientation="Horizontal" Margin="10">
+			<Button Content="Start" Command="{Binding StartCommand}"/>
+			<Button Content="Stop" Command="{Binding StopCommand}" Margin="10,0,0,0"/>
+		</StackPanel>
+
+		<Grid Grid.Row="1" Margin="10" Background="Gray">
+			<controls:SpectrumControl 
+			DataSource="{Binding}"
+			ZoomX="{Binding ZoomX}" />
+		</Grid>
+	</Grid>
 </UserControl>
