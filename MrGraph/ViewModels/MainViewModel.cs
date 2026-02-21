@@ -3,37 +3,50 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MrGraph.ViewModels.Interface;
 using System;
+using System.Reactive;
+using System.Reactive.Linq;
+using System.Reactive.Subjects;
 
 namespace MrGraph.ViewModels;
 
-public partial class MainViewModel : ObservableObject, ISpectrumDataProvider
+public partial class MainViewModel : ObservableObject, ISpectrumDataProvider, IDisposable
 {
-    private readonly DispatcherTimer _timer;
     private readonly Random _random = new();
     private readonly float[] _spectrumData = new float[1024];
 
+    private IDisposable? _timerSubscription;
+
+    private readonly Subject<Unit> _frameSubject = new();
+    public IObservable<Unit> Frames => _frameSubject;
+
     public double ZoomX { get; set; } = 1.0;
-
-    public MainViewModel()
-    {
-        _timer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(50)
-        };
-
-        _timer.Tick += (_, _) =>
-        {
-            GenerateData();
-        };
-    }
 
     public ReadOnlySpan<float> GetData() => _spectrumData;
 
     [RelayCommand]
-    private void Start() => _timer.Start();
+    private void Start()
+    {
+        if (_timerSubscription != null)
+            return;
+
+        _timerSubscription = Observable
+            .Interval(TimeSpan.FromMilliseconds(50))
+            .Subscribe(_ =>
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    GenerateData();
+                    _frameSubject.OnNext(Unit.Default);
+                });
+            });
+    }
 
     [RelayCommand]
-    private void Stop() => _timer.Stop();
+    private void Stop()
+    {
+        _timerSubscription?.Dispose();
+        _timerSubscription = null;
+    }
 
     private void GenerateData()
     {
@@ -44,5 +57,11 @@ public partial class MainViewModel : ObservableObject, ISpectrumDataProvider
             float noise = (float)(_random.NextDouble() * 20 - 10);
             _spectrumData[i] = baseValue + noise;
         }
+    }
+
+    public void Dispose()
+    {
+        _timerSubscription?.Dispose();
+        _frameSubject.Dispose();
     }
 }

@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
+using MrGraph.ViewModels;
 using MrGraph.ViewModels.Interface;
 using System;
 
@@ -37,7 +38,8 @@ public class SpectrumControl : Control
         set => SetValue(OffsetXProperty, value);
     }
 
-    private readonly DispatcherTimer _renderTimer;
+    private IDisposable? _subscription;
+
     private const double MinZoomX = 1.0;
     private const double MaxZoomX = 50.0;
 
@@ -49,13 +51,7 @@ public class SpectrumControl : Control
 
     public SpectrumControl()
     {
-        _renderTimer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(50)
-        };
 
-        _renderTimer.Tick += (_, _) => InvalidateVisual();
-        _renderTimer.Start();
     }
 
     public override void Render(DrawingContext context)
@@ -103,6 +99,24 @@ public class SpectrumControl : Control
             }
 
             context.DrawGeometry(null, pen, geometry);
+        }
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+
+        if (change.Property == DataSourceProperty)
+        {
+            _subscription?.Dispose();
+
+            if (change.NewValue is MainViewModel vm)
+            {
+                _subscription = vm.Frames.Subscribe(_ =>
+                {
+                    InvalidateVisual();
+                });
+            }
         }
     }
 
@@ -209,5 +223,4 @@ public class SpectrumControl : Control
             context.DrawText(text, new Point(x + 3, bounds.Bottom - 18));
         }
     }
-
 }
