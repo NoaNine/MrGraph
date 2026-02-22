@@ -1,4 +1,4 @@
-﻿using Avalonia.Threading;
+﻿using Avalonia.ReactiveUI;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MrGraph.ViewModels.Interface;
@@ -29,16 +29,18 @@ public partial class MainViewModel : ObservableObject, ISpectrumDataProvider, ID
         if (_timerSubscription != null)
             return;
 
-        _timerSubscription = Observable
-            .Interval(TimeSpan.FromMilliseconds(50))
-            .Subscribe(_ =>
-            {
-                Dispatcher.UIThread.Post(() =>
+        _timerSubscription =
+            Observable.Interval(TimeSpan.FromMilliseconds(50))
+                .Select(_ =>
                 {
-                    GenerateData();
+                    GenerateData();  
+                    return Unit.Default;
+                })
+                .ObserveOn(AvaloniaScheduler.Instance) 
+                .Subscribe(_ =>
+                {
                     _frameSubject.OnNext(Unit.Default);
                 });
-            });
     }
 
     [RelayCommand]

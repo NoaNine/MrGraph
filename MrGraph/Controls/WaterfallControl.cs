@@ -2,7 +2,6 @@
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
-using Avalonia.Threading;
 using MrGraph.ViewModels;
 using MrGraph.ViewModels.Interface;
 using System;
@@ -11,14 +10,10 @@ namespace MrGraph.Controls;
 
 public class WaterfallControl : Control
 {
-    private const int HistorySize = 200;
-    private const int PointCount = 1024;
-
     private const double MinDb = -120;
     private const double MaxDb = -20;
 
     private readonly uint[] _colorLut = new uint[256];
-    private readonly float[,] _buffer = new float[HistorySize, PointCount];
     private int _writeIndex;
 
     private WriteableBitmap? _bitmap;
@@ -93,7 +88,7 @@ public class WaterfallControl : Control
             Avalonia.Platform.AlphaFormat.Opaque);
     }
 
-    private void WriteRow(float[] spectrum)
+    private void WriteRow(ReadOnlySpan<float> spectrum)
     {
         if (_bitmap == null)
             return;
@@ -105,7 +100,6 @@ public class WaterfallControl : Control
             uint* ptr = (uint*)fb.Address;
             int stride = fb.RowBytes / 4;
 
-            // зсув на writeIndex
             int rowIndex = _writeIndex;
             uint* rowPtr = ptr + rowIndex * stride;
 
@@ -128,7 +122,7 @@ public class WaterfallControl : Control
             var color = GetColor(normalized);
 
             _colorLut[i] =
-                (uint)(255 << 24 |  // A
+                (uint)(255 << 24 | 
                        color.R << 16 |
                        color.G << 8 |
                        color.B);
@@ -166,7 +160,7 @@ public class WaterfallControl : Control
         if (data.Length != _width)
             return;
 
-        WriteRow(data.ToArray()); // або Span якщо хочеш ще швидше
+        WriteRow(data);
 
         _writeIndex++;
         if (_writeIndex >= _height)

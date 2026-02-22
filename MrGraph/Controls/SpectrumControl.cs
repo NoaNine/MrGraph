@@ -2,7 +2,6 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
-using Avalonia.Threading;
 using MrGraph.ViewModels;
 using MrGraph.ViewModels.Interface;
 using System;
