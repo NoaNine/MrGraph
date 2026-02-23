@@ -1,69 +1,40 @@
-﻿using Avalonia.ReactiveUI;
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using MrGraph.ViewModels.Interface;
+using MrGraph.Models.Frames;
+using MrGraph.Services.Interface;
 using System;
-using System.Reactive;
-using System.Reactive.Linq;
-using System.Reactive.Subjects;
 
 namespace MrGraph.ViewModels;
 
-public partial class MainViewModel : ObservableObject, ISpectrumDataProvider, IDisposable
+public partial class MainViewModel(ISpectrumEngine engine) : ViewModelBase
 {
-    private readonly Random _random = new();
-    private readonly float[] _spectrumData = new float[1024];
-
-    private IDisposable? _timerSubscription;
-
-    private readonly Subject<Unit> _frameSubject = new();
-    public IObservable<Unit> Frames => _frameSubject;
-
     public double ZoomX { get; set; } = 1.0;
 
-    public ReadOnlySpan<float> GetData() => _spectrumData;
+    public ISpectrumEngine Engine { get; } = engine;
+
+    public ISpectrumFrameSource FrameSource => Engine;
+
+    [ObservableProperty]
+    private bool _isStartButtonEnabled = true;
+
+    [ObservableProperty]
+    private bool _isStopButtonEnabled = false;
 
     [RelayCommand]
     private void Start()
     {
-        if (_timerSubscription != null)
-            return;
+        Engine.Start();
 
-        _timerSubscription =
-            Observable.Interval(TimeSpan.FromMilliseconds(50))
-                .Select(_ =>
-                {
-                    GenerateData();  
-                    return Unit.Default;
-                })
-                .ObserveOn(AvaloniaScheduler.Instance) 
-                .Subscribe(_ =>
-                {
-                    _frameSubject.OnNext(Unit.Default);
-                });
+        IsStartButtonEnabled = false;
+        IsStopButtonEnabled = true;
     }
 
     [RelayCommand]
     private void Stop()
     {
-        _timerSubscription?.Dispose();
-        _timerSubscription = null;
-    }
+        Engine.Stop();
 
-    private void GenerateData()
-    {
-        const float baseValue = -70f;
-
-        for (int i = 0; i < _spectrumData.Length; i++)
-        {
-            float noise = (float)(_random.NextDouble() * 20 - 10);
-            _spectrumData[i] = baseValue + noise;
-        }
-    }
-
-    public void Dispose()
-    {
-        _timerSubscription?.Dispose();
-        _frameSubject.Dispose();
+        IsStartButtonEnabled = true;
+        IsStopButtonEnabled = false;
     }
 }

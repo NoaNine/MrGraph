@@ -17,19 +17,21 @@
 	<Grid RowDefinitions="Auto,*,*">
 
 		<StackPanel Orientation="Horizontal" Margin="10">
-			<Button Content="Start" Command="{Binding StartCommand}"/>
-			<Button Content="Stop" Command="{Binding StopCommand}" Margin="10,0,0,0"/>
+			<Button Content="Start" 
+					Command="{Binding StartCommand}"
+					IsEnabled="{Binding IsStartButtonEnabled}" />
+			<Button Content="Stop" 
+					Command="{Binding StopCommand}" 
+					IsEnabled="{Binding IsStopButtonEnabled}"
+					Margin="10,0,0,0" />
 		</StackPanel>	
 
 		<Grid Grid.Row="1" Margin="10" Background="Gray">
-			<controls:SpectrumControl
-			DataSource="{Binding}"
-			ZoomX="{Binding ZoomX}" />
+			<controls:SpectrumControl DataSource="{Binding FrameSource}" ZoomX="{Binding ZoomX}" />
 		</Grid>
 
 		<Grid Grid.Row="2" Margin="10">
-			<controls:WaterfallControl
-			DataSource="{Binding}" />
+			<controls:WaterfallControl DataSource="{Binding FrameSource}" />
 		</Grid>
 	</Grid>
 </UserControl>

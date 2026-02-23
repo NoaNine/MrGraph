@@ -2,25 +2,30 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
-using MrGraph.ViewModels;
-using MrGraph.ViewModels.Interface;
+using Avalonia.ReactiveUI;
+using MrGraph.Services.Interface;
+using MrGraph.Settings;
 using System;
+using System.Reactive.Linq;
 
 namespace MrGraph.Controls;
 
 public class SpectrumControl : Control
 {
-    public static readonly StyledProperty<object?> DataSourceProperty =
-        AvaloniaProperty.Register<SpectrumControl, object?>(nameof(DataSource));
+    public static readonly StyledProperty<ISpectrumFrameSource?> DataSourceProperty =
+        AvaloniaProperty.Register<SpectrumControl, ISpectrumFrameSource?>(
+            nameof(DataSource));
 
-    public object? DataSource
+    public ISpectrumFrameSource? DataSource
     {
         get => GetValue(DataSourceProperty);
         set => SetValue(DataSourceProperty, value);
     }
 
     public static readonly StyledProperty<double> ZoomXProperty =
-        AvaloniaProperty.Register<SpectrumControl, double>(nameof(ZoomX), 1.0);
+        AvaloniaProperty.Register<SpectrumControl, double>(
+            nameof(ZoomX),
+            SpectrumSettings.DefaultZoomX);
 
     public double ZoomX
     {
@@ -29,7 +34,9 @@ public class SpectrumControl : Control
     }
 
     public static readonly StyledProperty<double> OffsetXProperty =
-        AvaloniaProperty.Register<SpectrumControl, double>(nameof(OffsetX), 0);
+        AvaloniaProperty.Register<SpectrumControl, double>(
+            nameof(OffsetX),
+            0);
 
     public double OffsetX
     {
@@ -38,30 +45,13 @@ public class SpectrumControl : Control
     }
 
     private IDisposable? _subscription;
-
-    private const double MinZoomX = 1.0;
-    private const double MaxZoomX = 50.0;
-
-    private const double MinFrequency = 90.0;
-    private const double MaxFrequency = 110.0;
-
-    private const double MinDb = -120.0;
-    private const double MaxDb = -20.0;
-
-    public SpectrumControl()
-    {
-
-    }
+    private float[]? _currentData;
 
     public override void Render(DrawingContext context)
     {
         base.Render(context);
 
-        if (DataSource is not ISpectrumDataProvider provider)
-            return;
-
-        var data = provider.GetData();
-        if (data.Length == 0)
+        if (_currentData is null || _currentData.Length == 0)
             return;
 
         var bounds = Bounds;
@@ -71,25 +61,22 @@ public class SpectrumControl : Control
             DrawPowerGrid(context, bounds);
             DrawFrequencyGrid(context, bounds);
 
-            const double minDb = -120;
-            const double maxDb = -20;
-            double dbRange = maxDb - minDb;
+            double dbRange = SpectrumSettings.MaxDb - SpectrumSettings.MinDb;
 
             var pen = new Pen(Brushes.Lime, 1);
             var geometry = new StreamGeometry();
 
             using var geo = geometry.Open();
 
-            for (int i = 0; i < data.Length; i++)
+            for (int i = 0; i < _currentData.Length; i++)
             {
-                double x = (i / (double)(data.Length - 1)) *
-                           bounds.Width * ZoomX + OffsetX;
+                double x = (i / (double)(_currentData.Length - 1)) * bounds.Width * ZoomX + OffsetX;
 
-                double normalized = (data[i] - minDb) / dbRange;
+                double normalized = (_currentData[i] - SpectrumSettings.MinDb) / dbRange;
+
                 normalized = Math.Clamp(normalized, 0, 1);
 
-                double y = bounds.Bottom -
-                           (normalized * bounds.Height);
+                double y = bounds.Bottom - (normalized * bounds.Height);
 
                 if (i == 0)
                     geo.BeginFigure(new Point(x, y), false);
@@ -105,17 +92,20 @@ public class SpectrumControl : Control
     {
         base.OnPropertyChanged(change);
 
-        if (change.Property == DataSourceProperty)
-        {
-            _subscription?.Dispose();
+        if (change.Property != DataSourceProperty)
+            return;
 
-            if (change.NewValue is MainViewModel vm)
-            {
-                _subscription = vm.Frames.Subscribe(_ =>
+        _subscription?.Dispose();
+
+        if (change.NewValue is ISpectrumFrameSource data)
+        {
+            _subscription = data.Frames
+                .ObserveOn(AvaloniaScheduler.Instance)
+                .Subscribe(frame =>
                 {
+                    _currentData = frame.Data;
                     InvalidateVisual();
                 });
-            }
         }
     }
 
@@ -129,7 +119,8 @@ public class SpectrumControl : Control
         double zoomFactor = e.Delta.Y > 0 ? 1.1 : 0.9;
 
         double newZoom = ZoomX * zoomFactor;
-        newZoom = Math.Clamp(newZoom, MinZoomX, MaxZoomX);
+
+        newZoom = Math.Clamp(newZoom, SpectrumSettings.MinZoomX, SpectrumSettings.MaxZoomX);
 
         zoomFactor = newZoom / ZoomX;
         ZoomX = newZoom;
@@ -163,14 +154,17 @@ public class SpectrumControl : Control
     private void DrawPowerGrid(DrawingContext context, Rect bounds)
     {
         var gridPen = new Pen(new SolidColorBrush(Color.FromRgb(60, 60, 60)), 1);
+
         var textBrush = Brushes.LightGray;
 
-        double dbRange = MaxDb - MinDb;
+        double dbRange = SpectrumSettings.MaxDb - SpectrumSettings.MinDb;
 
-        for (double db = MinDb; db <= MaxDb; db += 10)
+        for (double db = SpectrumSettings.MinDb; db <= SpectrumSettings.MaxDb; db += SpectrumSettings.GridDbStep)
         {
-            double normalized = (db - MinDb) / dbRange;
-            double y = bounds.Bottom - normalized * bounds.Height;
+            double normalized = (db - SpectrumSettings.MinDb) / dbRange;
+
+            double y = bounds.Bottom -
+                       normalized * bounds.Height;
 
             context.DrawLine(gridPen,
                 new Point(bounds.Left, y),
@@ -188,28 +182,26 @@ public class SpectrumControl : Control
         }
     }
 
-
     private void DrawFrequencyGrid(DrawingContext context, Rect bounds)
     {
         var gridPen = new Pen(new SolidColorBrush(Color.FromRgb(60, 60, 60)), 1);
+
         var textBrush = Brushes.LightGray;
 
-        double span = MaxFrequency - MinFrequency;
+        double span = SpectrumSettings.MaxFrequency - SpectrumSettings.MinFrequency;
 
         double contentWidth = bounds.Width * ZoomX;
 
-        for (double freq = MinFrequency; freq <= MaxFrequency; freq += 1.0)
+        for (double freq = SpectrumSettings.MinFrequency; freq <= SpectrumSettings.MaxFrequency; freq += SpectrumSettings.FrequencyStep)
         {
-            double normalized = (freq - MinFrequency) / span;
+            double normalized = (freq - SpectrumSettings.MinFrequency) / span;
 
             double x = normalized * contentWidth + OffsetX;
 
             if (x < bounds.Left || x > bounds.Right)
                 continue;
 
-            context.DrawLine(gridPen,
-                new Point(x, bounds.Top),
-                new Point(x, bounds.Bottom));
+            context.DrawLine(gridPen,new Point(x, bounds.Top),new Point(x, bounds.Bottom));
 
             var text = new FormattedText(
                 $"{freq:0}",

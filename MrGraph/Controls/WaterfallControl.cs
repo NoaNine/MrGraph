@@ -2,34 +2,33 @@
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
-using MrGraph.ViewModels;
-using MrGraph.ViewModels.Interface;
+using Avalonia.ReactiveUI;
+using MrGraph.Services.Interface;
+using MrGraph.Settings;
 using System;
+using System.Reactive.Linq;
 
 namespace MrGraph.Controls;
 
 public class WaterfallControl : Control
 {
-    private const double MinDb = -120;
-    private const double MaxDb = -20;
-
     private readonly uint[] _colorLut = new uint[256];
     private int _writeIndex;
 
     private WriteableBitmap? _bitmap;
+    private IDisposable? _subscription;
+
     private int _width;
-    private int _height = 200;
+    private readonly int _height = SpectrumSettings.WaterfallHeight;
 
-    public static readonly StyledProperty<object?> DataSourceProperty =
-        AvaloniaProperty.Register<WaterfallControl, object?>(nameof(DataSource));
+    public static readonly StyledProperty<ISpectrumFrameSource?> DataSourceProperty =
+        AvaloniaProperty.Register<WaterfallControl, ISpectrumFrameSource?>(nameof(DataSource));
 
-    public object? DataSource
+    public ISpectrumFrameSource? DataSource
     {
         get => GetValue(DataSourceProperty);
         set => SetValue(DataSourceProperty, value);
     }
-
-    private IDisposable? _subscription;
 
     public WaterfallControl()
     {
@@ -49,29 +48,7 @@ public class WaterfallControl : Control
         {
             context.DrawRectangle(Brushes.Black, null, bounds);
 
-            context.DrawImage(
-                _bitmap,
-                new Rect(0, 0, _width, _height),
-                bounds);
-        }
-    }
-
-    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
-    {
-        base.OnPropertyChanged(change);
-
-        if (change.Property == DataSourceProperty)
-        {
-            _subscription?.Dispose();
-
-            if (change.NewValue is MainViewModel vm)
-            {
-                _subscription = vm.Frames.Subscribe(_ =>
-                {
-                    CaptureFrame();
-                    InvalidateVisual();
-                });
-            }
+            context.DrawImage(_bitmap, new Rect(0, 0, _width, _height), bounds);
         }
     }
 
@@ -79,13 +56,49 @@ public class WaterfallControl : Control
     {
         base.OnAttachedToVisualTree(e);
 
-        _width = 1024;
+        _width = SpectrumSettings.SpectrumSize;
 
         _bitmap = new WriteableBitmap(
             new PixelSize(_width, _height),
             new Vector(96, 96),
             Avalonia.Platform.PixelFormat.Bgra8888,
             Avalonia.Platform.AlphaFormat.Opaque);
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+
+        if (change.Property != DataSourceProperty)
+            return;
+
+        _subscription?.Dispose();
+
+        if (change.NewValue is ISpectrumFrameSource data)
+        {
+            _subscription = data.Frames
+                .ObserveOn(AvaloniaScheduler.Instance)
+                .Subscribe(frame =>
+                {
+                    CaptureFrame(frame.Data);
+                    InvalidateVisual();
+                });
+        }
+    }
+
+    private void CaptureFrame(float[] data)
+    {
+        if (_bitmap == null)
+            return;
+
+        if (data.Length != _width)
+            return;
+
+        WriteRow(data);
+
+        _writeIndex++;
+        if (_writeIndex >= _height)
+            _writeIndex = 0;
     }
 
     private void WriteRow(ReadOnlySpan<float> spectrum)
@@ -100,12 +113,14 @@ public class WaterfallControl : Control
             uint* ptr = (uint*)fb.Address;
             int stride = fb.RowBytes / 4;
 
-            int rowIndex = _writeIndex;
-            uint* rowPtr = ptr + rowIndex * stride;
+            uint* rowPtr = ptr + _writeIndex * stride;
+
+            double dbRange = SpectrumSettings.MaxDb - SpectrumSettings.MinDb;
 
             for (int x = 0; x < _width; x++)
             {
-                double normalized = (spectrum[x] - MinDb) / (MaxDb - MinDb);
+                double normalized = (spectrum[x] - SpectrumSettings.MinDb) / dbRange;
+
                 normalized = Math.Clamp(normalized, 0, 1);
 
                 int lutIndex = (int)(normalized * 255);
@@ -122,7 +137,7 @@ public class WaterfallControl : Control
             var color = GetColor(normalized);
 
             _colorLut[i] =
-                (uint)(255 << 24 | 
+                (uint)(255 << 24 |
                        color.R << 16 |
                        color.G << 8 |
                        color.B);
@@ -134,42 +149,30 @@ public class WaterfallControl : Control
         normalized = Math.Clamp(normalized, 0, 1);
 
         if (normalized < 0.25)
-            return Lerp(Color.Parse("#0000ff"), Color.Parse("#00ffff"), normalized / 0.25);
-        if (normalized < 0.5)
-            return Lerp(Color.Parse("#00ffff"), Color.Parse("#00ff00"), (normalized - 0.25) / 0.25);
-        if (normalized < 0.75)
-            return Lerp(Color.Parse("#00ff00"), Color.Parse("#ffff00"), (normalized - 0.5) / 0.25);
+            return Lerp(Color.Parse("#0000ff"),
+                        Color.Parse("#00ffff"),
+                        normalized / 0.25);
 
-        return Lerp(Color.Parse("#ffff00"), Color.Parse("#ff0000"), (normalized - 0.75) / 0.25);
+        if (normalized < 0.5)
+            return Lerp(Color.Parse("#00ffff"),
+                        Color.Parse("#00ff00"),
+                        (normalized - 0.25) / 0.25);
+
+        if (normalized < 0.75)
+            return Lerp(Color.Parse("#00ff00"),
+                        Color.Parse("#ffff00"),
+                        (normalized - 0.5) / 0.25);
+
+        return Lerp(Color.Parse("#ffff00"),
+                    Color.Parse("#ff0000"),
+                    (normalized - 0.75) / 0.25);
     }
 
-    private Color Lerp(Color a, Color b, double t)
+    private static Color Lerp(Color a, Color b, double t)
     {
         return Color.FromRgb(
             (byte)(a.R + (b.R - a.R) * t),
             (byte)(a.G + (b.G - a.G) * t),
             (byte)(a.B + (b.B - a.B) * t));
-    }
-
-    private void CaptureFrame()
-    {
-        if (DataSource is not ISpectrumDataProvider provider)
-            return;
-
-        var data = provider.GetData();
-        if (data.Length != _width)
-            return;
-
-        WriteRow(data);
-
-        _writeIndex++;
-        if (_writeIndex >= _height)
-            _writeIndex = 0;
-    }
-
-    private void OnFrameUpdated()
-    {
-        CaptureFrame();
-        InvalidateVisual();
     }
 }
